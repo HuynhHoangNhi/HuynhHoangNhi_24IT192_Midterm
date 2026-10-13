@@ -2,6 +2,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -35,8 +36,10 @@ static void print_permissions(mode_t mode)
 
     if (mode & S_ISUID)
         permissions[3] = (mode & S_IXUSR) ? 's' : 'S';
+
     if (mode & S_ISGID)
         permissions[6] = (mode & S_IXGRP) ? 's' : 'S';
+
     if (mode & S_ISVTX)
         permissions[9] = (mode & S_IXOTH) ? 't' : 'T';
 
@@ -50,6 +53,7 @@ static char file_indicator(const struct stat *metadata)
     if (S_ISLNK(metadata->st_mode)) return '@';
     if (S_ISFIFO(metadata->st_mode)) return '|';
     if (S_ISSOCK(metadata->st_mode)) return '=';
+
     if (metadata->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))
         return '*';
 
@@ -68,11 +72,13 @@ static void print_name(const char *name,
             putchar('?');
         else
             putchar(*p);
+
         p++;
     }
 
     if (options->classify) {
         char indicator = file_indicator(metadata);
+
         if (indicator != '\0')
             putchar(indicator);
     }
@@ -95,11 +101,96 @@ static void print_size(off_t size, const Options *options)
     } else if (options->kilobytes) {
         unsigned long long blocks =
             ((unsigned long long)size + 1023ULL) / 1024ULL;
+
         printf(" %8llu", blocks);
     } else {
         printf(" %8lld", (long long)size);
     }
 }
+
+/* Print the target of a symbolic link. */
+
+/* Print the target of a symbolic link. */
+static void print_link_target(const char *path, const char *name)
+{
+    char *full_path;
+    char *target;
+    size_t path_length;
+    size_t name_length;
+    size_t full_length;
+    size_t capacity = 256;
+    ssize_t length;
+    struct stat metadata;
+
+    /*
+     * If path already names this entry, use it directly.
+     * Otherwise, combine the directory path and entry name.
+     */
+    if (lstat(path, &metadata) == 0 && S_ISLNK(metadata.st_mode)) {
+        full_path = malloc(strlen(path) + 1);
+        if (full_path == NULL)
+            return;
+        strcpy(full_path, path);
+    } else {
+        path_length = strlen(path);
+        name_length = strlen(name);
+        full_length = path_length + name_length + 2;
+
+        full_path = malloc(full_length);
+        if (full_path == NULL)
+            return;
+
+        (void)snprintf(full_path, full_length, "%s%s%s",
+                       path,
+                       (path_length > 0 && path[path_length - 1] == '/')
+                           ? "" : "/",
+                       name);
+    }
+
+    target = malloc(capacity);
+    if (target == NULL) {
+        free(full_path);
+        return;
+    }
+
+    for (;;) {
+        length = readlink(full_path, target, capacity);
+
+        if (length < 0) {
+            free(target);
+            free(full_path);
+            return;
+        }
+
+        if ((size_t)length < capacity)
+            break;
+
+        if (capacity > (size_t)-1 / 2) {
+            free(target);
+            free(full_path);
+            return;
+        }
+
+        capacity *= 2;
+
+        {
+            char *grown = realloc(target, capacity);
+            if (grown == NULL) {
+                free(target);
+                free(full_path);
+                return;
+            }
+            target = grown;
+        }
+    }
+
+    target[length] = '\0';
+    printf(" -> %s", target);
+
+    free(target);
+    free(full_path);
+}
+
 
 /* Display one entry using long format. */
 static void display_long(const char *path,
@@ -114,8 +205,6 @@ static void display_long(const char *path,
     const char *owner_name;
     const char *group_name;
     time_t timestamp = metadata.st_mtime;
-
-    (void)path;
 
     if (options->use_access_time)
         timestamp = metadata.st_atime;
@@ -135,12 +224,14 @@ static void display_long(const char *path,
     } else {
         owner_name = owner != NULL ? owner->pw_name : "?";
         group_name = group != NULL ? group->gr_name : "?";
+
         printf(" %-8s %-8s", owner_name, group_name);
     }
 
     print_size(metadata.st_size, options);
 
     time_info = localtime(&timestamp);
+
     if (time_info != NULL &&
         strftime(time_buffer, sizeof(time_buffer),
                  "%b %e %H:%M", time_info) > 0)
@@ -150,6 +241,10 @@ static void display_long(const char *path,
 
     printf(" ");
     print_name(entry->name, &metadata, options);
+
+    if (S_ISLNK(metadata.st_mode))
+        print_link_target(path, entry->name);
+
     putchar('\n');
 }
 
@@ -166,7 +261,8 @@ void display_entry(const char *path,
 
     if (options->show_blocks) {
         unsigned long long blocks =
-            ((unsigned long long)entry->metadata.st_blocks);
+            (unsigned long long)entry->metadata.st_blocks;
+
         printf("%llu ", blocks);
     }
 
