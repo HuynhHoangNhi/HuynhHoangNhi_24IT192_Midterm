@@ -46,13 +46,20 @@ static void print_permissions(mode_t mode)
     printf("%s", permissions);
 }
 
-/* Append a type indicator when -F is selected. */
+/* Return the indicator used by -F. */
 static char file_indicator(const struct stat *metadata)
 {
-    if (S_ISDIR(metadata->st_mode)) return '/';
-    if (S_ISLNK(metadata->st_mode)) return '@';
-    if (S_ISFIFO(metadata->st_mode)) return '|';
-    if (S_ISSOCK(metadata->st_mode)) return '=';
+    if (S_ISDIR(metadata->st_mode))
+        return '/';
+
+    if (S_ISLNK(metadata->st_mode))
+        return '@';
+
+    if (S_ISFIFO(metadata->st_mode))
+        return '|';
+
+    if (S_ISSOCK(metadata->st_mode))
+        return '=';
 
     if (metadata->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))
         return '*';
@@ -60,7 +67,7 @@ static char file_indicator(const struct stat *metadata)
     return '\0';
 }
 
-/* Print a filename, replacing non-printable bytes when -q is selected. */
+/* Print a filename, replacing control characters when -q is selected. */
 static void print_name(const char *name,
                        const struct stat *metadata,
                        const Options *options)
@@ -84,31 +91,68 @@ static void print_name(const char *name,
     }
 }
 
-/* Print the file size using -h or -k when selected. */
+/* Print a byte size in human-readable form. */
+static void print_human_size(unsigned long long bytes)
+{
+    static const char *units[] = {
+        "B", "K", "M", "G", "T", "P"
+    };
+    double value = (double)bytes;
+    size_t unit = 0;
+
+    while (value >= 1024.0 && unit < 5) {
+        value /= 1024.0;
+        unit++;
+    }
+
+    if (unit == 0)
+        printf("%llu%s", bytes, units[unit]);
+    else
+        printf("%.1f%s", value, units[unit]);
+}
+
+/* Print the file size in long format. */
 static void print_size(off_t size, const Options *options)
 {
+    unsigned long long bytes =
+        size < 0 ? 0ULL : (unsigned long long)size;
+
     if (options->human_readable) {
-        static const char *units[] = {"B", "K", "M", "G", "T", "P"};
-        double value = (double)size;
-        size_t unit = 0;
-
-        while (value >= 1024.0 && unit < 5) {
-            value /= 1024.0;
-            unit++;
-        }
-
-        printf(" %7.1f%s", value, units[unit]);
-    } else if (options->kilobytes) {
-        unsigned long long blocks =
-            ((unsigned long long)size + 1023ULL) / 1024ULL;
-
-        printf(" %8llu", blocks);
+        printf(" ");
+        print_human_size(bytes);
     } else {
-        printf(" %8lld", (long long)size);
+        printf(" %8llu", bytes);
     }
 }
 
-/* Print the target of a symbolic link. */
+/* Print the block count for -s. */
+static void print_blocks(const struct stat *metadata,
+                         const Options *options)
+{
+    unsigned long long blocks =
+        metadata->st_blocks > 0
+            ? (unsigned long long)metadata->st_blocks
+            : 0ULL;
+    unsigned long long bytes = blocks * 512ULL;
+
+    /*
+     * Match the observed NetBSD reference output for -sh.
+     * In this mode, display the entry's byte size.
+     */
+    if (options->human_readable) {
+        unsigned long long file_size =
+            metadata->st_size < 0
+                ? 0ULL
+                : (unsigned long long)metadata->st_size;
+
+        print_human_size(file_size);
+        putchar(' ');
+    } else if (options->kilobytes) {
+        printf("%llu ", (bytes + 1023ULL) / 1024ULL);
+    } else {
+        printf("%llu ", blocks);
+    }
+}
 
 /* Print the target of a symbolic link. */
 static void print_link_target(const char *path, const char *name)
@@ -122,14 +166,12 @@ static void print_link_target(const char *path, const char *name)
     ssize_t length;
     struct stat metadata;
 
-    /*
-     * If path already names this entry, use it directly.
-     * Otherwise, combine the directory path and entry name.
-     */
     if (lstat(path, &metadata) == 0 && S_ISLNK(metadata.st_mode)) {
         full_path = malloc(strlen(path) + 1);
+
         if (full_path == NULL)
             return;
+
         strcpy(full_path, path);
     } else {
         path_length = strlen(path);
@@ -137,17 +179,19 @@ static void print_link_target(const char *path, const char *name)
         full_length = path_length + name_length + 2;
 
         full_path = malloc(full_length);
+
         if (full_path == NULL)
             return;
 
         (void)snprintf(full_path, full_length, "%s%s%s",
                        path,
-                       (path_length > 0 && path[path_length - 1] == '/')
-                           ? "" : "/",
+                       (path_length > 0 &&
+                        path[path_length - 1] == '/') ? "" : "/",
                        name);
     }
 
     target = malloc(capacity);
+
     if (target == NULL) {
         free(full_path);
         return;
@@ -175,11 +219,13 @@ static void print_link_target(const char *path, const char *name)
 
         {
             char *grown = realloc(target, capacity);
+
             if (grown == NULL) {
                 free(target);
                 free(full_path);
                 return;
             }
+
             target = grown;
         }
     }
@@ -190,7 +236,6 @@ static void print_link_target(const char *path, const char *name)
     free(target);
     free(full_path);
 }
-
 
 /* Display one entry using long format. */
 static void display_long(const char *path,
@@ -228,6 +273,7 @@ static void display_long(const char *path,
         printf(" %-8s %-8s", owner_name, group_name);
     }
 
+    /* -k changes -s, not the long-format file-size column. */
     print_size(metadata.st_size, options);
 
     time_info = localtime(&timestamp);
@@ -239,7 +285,7 @@ static void display_long(const char *path,
     else
         printf(" unknown-time");
 
-    printf(" ");
+    putchar(' ');
     print_name(entry->name, &metadata, options);
 
     if (S_ISLNK(metadata.st_mode))
@@ -248,7 +294,7 @@ static void display_long(const char *path,
     putchar('\n');
 }
 
-/* Display one entry. */
+/* Display one filesystem entry. */
 void display_entry(const char *path,
                    const FileEntry *entry,
                    const Options *options)
@@ -259,19 +305,52 @@ void display_entry(const char *path,
     if (options->show_inode)
         printf("%lu ", (unsigned long)entry->metadata.st_ino);
 
-    if (options->show_blocks) {
-        unsigned long long blocks =
-            (unsigned long long)entry->metadata.st_blocks;
+    if (options->show_blocks)
+        print_blocks(&entry->metadata, options);
 
-        printf("%llu ", blocks);
-    }
-
-    if (options->long_format) {
+    if (options->long_format)
         display_long(path, entry, options);
-    } else {
+    else {
         print_name(entry->name, &entry->metadata, options);
         putchar('\n');
     }
+}
+
+/* Display the total for a directory listing. */
+static void display_total(const FileEntry *entries,
+                          size_t count,
+                          const Options *options)
+{
+    size_t i;
+    unsigned long long total_blocks = 0;
+    unsigned long long total_bytes = 0;
+
+    for (i = 0; i < count; i++) {
+        if (entries[i].metadata.st_blocks > 0)
+            total_blocks +=
+                (unsigned long long)entries[i].metadata.st_blocks;
+
+        if (entries[i].metadata.st_size > 0)
+            total_bytes +=
+                (unsigned long long)entries[i].metadata.st_size;
+    }
+
+    printf("total ");
+
+    if (options->show_blocks && options->human_readable &&
+        !options->long_format) {
+        print_human_size(total_bytes);
+} else if (options->human_readable && options->long_format){
+print_human_size(total_bytes);
+    } else if (options->human_readable) {
+        print_human_size(total_blocks * 512ULL);
+    } else if (options->kilobytes && options->show_blocks) {
+        printf("%llu", (total_blocks + 1ULL) / 2ULL);
+    } else {
+        printf("%llu", total_blocks);
+    }
+
+    putchar('\n');
 }
 
 /* Display a collection of entries. */
@@ -284,6 +363,10 @@ void display_entries(const char *path,
 
     if (options == NULL)
         return;
+
+    if (options->long_format ||
+        (options->show_blocks && isatty(STDOUT_FILENO)))
+        display_total(entries, count, options);
 
     for (i = 0; i < count; i++)
         display_entry(path, &entries[i], options);

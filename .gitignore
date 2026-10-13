@@ -13,3 +13,4 @@ core
 # Editor temporary files
 *~
 *.swp
+src/display_backup.c.txt
