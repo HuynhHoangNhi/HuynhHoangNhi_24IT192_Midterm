@@ -43,8 +43,13 @@ static int compare_size(const void *left, const void *right)
     const FileEntry *a = left;
     const FileEntry *b = right;
 
-    if (a->metadata.st_size < b->metadata.st_size) return 1;
-    if (a->metadata.st_size > b->metadata.st_size) return -1;
+    if (a->metadata.st_size < b->metadata.st_size) {
+        return 1;
+    }
+
+    if (a->metadata.st_size > b->metadata.st_size) {
+        return -1;
+    }
 
     return strcmp(a->name, b->name);
 }
@@ -64,23 +69,35 @@ static time_t selected_time(const FileEntry *entry,
     return entry->metadata.st_mtime;
 }
 
+/*
+ * qsort() does not accept an extra argument for its comparator.
+ * Store the current options while sorting by time.
+ */
+static const Options *sort_options = NULL;
+
 /* Compare selected timestamps, newest first. */
 static int compare_time(const void *left, const void *right)
 {
     const FileEntry *a = left;
     const FileEntry *b = right;
+    time_t time_a;
+    time_t time_b;
 
-    /*
-     * qsort does not pass our Options object to the comparator.
-     * The comparator therefore uses modification time by default.
-     * See the options-aware sorting function below.
-     */
-    if (a->metadata.st_mtime < b->metadata.st_mtime) return 1;
-    if (a->metadata.st_mtime > b->metadata.st_mtime) return -1;
+    time_a = selected_time(a, sort_options);
+    time_b = selected_time(b, sort_options);
+
+    if (time_a < time_b) {
+        return 1;
+    }
+
+    if (time_a > time_b) {
+        return -1;
+    }
 
     return strcmp(a->name, b->name);
 }
 
+/* Read directory entries and collect their metadata. */
 int read_directory(const char *path,
                    const Options *options,
                    FileEntry **entries,
@@ -134,8 +151,8 @@ int read_directory(const char *path,
 
         (void)snprintf(full_path, full_length, "%s%s%s",
                        path,
-                       (path_length > 0 && path[path_length - 1] == '/')
-                           ? "" : "/",
+                       (path_length > 0 &&
+                        path[path_length - 1] == '/') ? "" : "/",
                        item->d_name);
 
         if (lstat(full_path, &metadata) == -1) {
@@ -143,6 +160,7 @@ int read_directory(const char *path,
             errno = 0;
             continue;
         }
+
         free(full_path);
 
         name_copy = malloc(name_length + 1);
@@ -155,9 +173,12 @@ int read_directory(const char *path,
         memcpy(name_copy, item->d_name, name_length + 1);
 
         if (used == capacity) {
-            size_t new_capacity = capacity == 0 ? 16 : capacity * 2;
+            size_t new_capacity =
+                (capacity == 0) ? 16 : capacity * 2;
 
-            grown = realloc(result, new_capacity * sizeof(*result));
+            grown = realloc(result,
+                            new_capacity * sizeof(*result));
+
             if (grown == NULL) {
                 free(name_copy);
                 free_entries(result, used);
@@ -172,6 +193,7 @@ int read_directory(const char *path,
         result[used].name = name_copy;
         result[used].metadata = metadata;
         used++;
+
         errno = 0;
     }
 
@@ -188,9 +210,11 @@ int read_directory(const char *path,
 
     *entries = result;
     *count = used;
+
     return 0;
 }
 
+/* Sort entries according to the selected options. */
 void sort_entries(FileEntry *entries,
                   size_t count,
                   const Options *options)
@@ -205,11 +229,9 @@ void sort_entries(FileEntry *entries,
     if (options->sort_size) {
         qsort(entries, count, sizeof(*entries), compare_size);
     } else if (options->sort_time) {
-        /*
-         * Current implementation sorts by modification time.
-         * Access/change-time sorting will be improved in a later step.
-         */
+        sort_options = options;
         qsort(entries, count, sizeof(*entries), compare_time);
+        sort_options = NULL;
     } else {
         qsort(entries, count, sizeof(*entries), compare_names);
     }
@@ -217,12 +239,14 @@ void sort_entries(FileEntry *entries,
     if (options->reverse) {
         for (i = 0; i < count / 2; i++) {
             FileEntry temp = entries[i];
+
             entries[i] = entries[count - i - 1];
             entries[count - i - 1] = temp;
         }
     }
 }
 
+/* Free the memory allocated for directory entries. */
 void free_entries(FileEntry *entries, size_t count)
 {
     size_t i;
