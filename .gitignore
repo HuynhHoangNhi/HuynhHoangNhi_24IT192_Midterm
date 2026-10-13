@@ -1,0 +1,15 @@
+
+# Object files
+*.o
+
+# Compiled executable
+ls
+ls.exe
+
+# Debugging files
+*.core
+core
+
+# Editor temporary files
+*~
+*.swp
