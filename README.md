@@ -1,4 +1,4 @@
-﻿# Simplified NetBSD ls - Midterm Project
+﻿# Simplified NetBSD `ls(1)` — Midterm Project
 
 ## 1. Project Information
 
@@ -9,45 +9,60 @@
 
 ## 2. Project Description
 
-This project implements a simplified version of the NetBSD `ls(1)` command in C. It is based on a subset of the options described in the supplied NetBSD manual.
+This project implements a simplified version of the NetBSD `ls(1)` command in C. The implementation follows the subset of options specified in the course-provided NetBSD manual.
 
-The program supports directory listing, file information display, sorting, recursive directory traversal, and selected output-formatting options.
+The program lists directory contents and file information. It supports selected sorting methods, recursive directory traversal, long-format output, inode numbers, block counts, file-type indicators, and filename handling options.
 
-The source code is divided into multiple C source files and header files to separate option parsing, directory processing, and output formatting.
+This is an educational implementation and is not intended to replace every behavior of the original NetBSD `ls` utility.
 
 ## 3. Project Structure
 
 ```text
 ls-midterm/
-|-- include/
-|   |-- options.h
-|   |-- list.h
-|   `-- display.h
-|-- src/
-|   |-- main.c
-|   |-- options.c
-|   |-- list.c
-|   `-- display.c
-|-- Makefile
-|-- README.md
-`-- .gitignore
+├── include/
+│   ├── display.h
+│   ├── list.h
+│   └── options.h
+├── src/
+│   ├── display.c
+│   ├── list.c
+│   ├── main.c
+│   └── options.c
+├── .gitignore
+├── Makefile
+└── README.md
 ```
 
-## 4. Compilation
+## 4. Implementation Design
 
-Build the program on NetBSD using:
+The program is divided into modules to make the code easier to understand and maintain.
+
+- **`main.c`**: Coordinates command-line processing and file or directory listing.
+- **`options.c`**: Parses command-line options.
+- **`list.c`**: Reads directory entries, filters entries, obtains file metadata, and handles sorting.
+- **`display.c`**: Formats and prints filenames, file information, sizes, permissions, and symbolic-link targets.
+- **Header files**: Declare shared structures, functions, and option definitions.
+- **`Makefile`**: Compiles the source files into the `ls` executable.
+- **`.gitignore`**: Excludes generated object files, compiled executables, and the local backup file.
+
+## 5. Compilation
+
+Run these commands on NetBSD from the project directory:
 
 ```sh
+make clean
 make
 ```
 
-Remove generated object files and the executable:
+The Makefile compiles the source files using the C compiler with warning flags enabled.
+
+To remove generated object files and the executable:
 
 ```sh
 make clean
 ```
 
-## 5. Usage
+## 6. Usage
 
 List the current directory:
 
@@ -97,59 +112,91 @@ List a directory itself instead of its contents:
 ./ls -d test_ls_review
 ```
 
-## 6. Implemented Options
+Display file-type indicators:
 
-The implemented option set includes:
+```sh
+./ls -F test_ls_review
+```
 
-- `-a`: Include all entries, including `.` and `..`.
-- `-A`: Include hidden entries except `.` and `..`.
-- `-c`: Use status-change time for relevant time operations.
-- `-d`: List directory entries themselves.
-- `-F`: Append file-type indicators.
-- `-f`: Disable sorting and include hidden entries.
-- `-h`: Display sizes in human-readable units.
-- `-i`: Display inode numbers.
-- `-k`: Display sizes in 1024-byte units.
-- `-l`: Use long-format output.
-- `-n`: Display numeric user and group IDs.
-- `-q`: Replace non-printable filename characters with `?`.
-- `-R`: Recursively list subdirectories.
-- `-r`: Reverse sorting order.
-- `-S`: Sort by file size.
-- `-s`: Display allocated block counts.
-- `-t`: Sort by the selected time field.
-- `-u`: Use access time for relevant time operations.
-- `-w`: Display non-printable filename characters without replacing them.
+Sort by file size:
 
-This project implements a subset of NetBSD `ls(1)` and is not a complete replacement for the original command.
+```sh
+./ls -S test_ls_review
+```
 
-## 7. Testing
+Sort by modification time:
 
-The program was compiled on NetBSD 10.1 using `make clean` and `make`.
+```sh
+./ls -t test_ls_review
+```
+
+Display allocated block counts:
+
+```sh
+./ls -s test_ls_review
+```
+
+Display human-readable sizes:
+
+```sh
+./ls -lh test_ls_review
+```
+
+## 7. Implemented Options
+
+The implementation supports the following option set from the supplied manual:
+
+| Option | Description |
+|---|---|
+| `-A` | Include hidden entries except `.` and `..`. |
+| `-a` | Include all entries, including `.` and `..`. |
+| `-c` | Use status-change time for relevant time operations. |
+| `-d` | List directory operands themselves. |
+| `-F` | Append file-type indicators. |
+| `-f` | Disable sorting and include hidden entries. |
+| `-h` | Display sizes in human-readable format with `-l` or `-s`. |
+| `-i` | Display inode numbers. |
+| `-k` | Display block counts in kilobytes with `-s`. |
+| `-l` | Display long-format file information. |
+| `-n` | Display numeric user and group IDs. |
+| `-q` | Replace non-printable filename characters with `?`. |
+| `-R` | Recursively list subdirectories. |
+| `-r` | Reverse sorting order. |
+| `-S` | Sort by file size, largest first. |
+| `-s` | Display allocated block counts. |
+| `-t` | Sort by the selected time field. |
+| `-u` | Use access time for relevant time operations. |
+| `-w` | Print non-printable filename characters without replacement. |
+
+The implementation also handles option precedence for selected opposing options. Exact compatibility with the original utility for every combination and filesystem edge case has not been established.
+
+## 8. Testing
+
+The program has been compiled successfully on NetBSD 10.1 using `make clean` and `make`. The build completed without compiler warnings in the recorded test run.
 
 The following behaviors have been tested:
 
-- Listing directory contents.
-- Displaying hidden entries with `-a` and `-A`.
-- Displaying directories with `-d` and `-ld`.
-- Recursive directory traversal.
-- Long-format output with `-l`.
-- Inode numbers with `-i`.
-- Numeric user and group IDs with `-n`.
-- File-type indicators with `-F`.
-- Sorting by size and time with `-S` and `-t`.
-- Reverse sorting with `-r`.
-- Human-readable and kilobyte size output with `-h` and `-k`.
-- Block counts with `-s`.
-- Non-printable filename handling with `-q` and `-w`.
-- Error handling for a nonexistent path, which returned a nonzero exit status.
+- Directory listing and hidden-entry options (`-a`, `-A`).
+- Directory operand handling (`-d`).
+- Recursive listing (`-R`).
+- Long-format information (`-l`) and numeric IDs (`-n`).
+- Inode numbers (`-i`).
+- File-type indicators (`-F`).
+- Sorting by size and time (`-S`, `-t`) and reverse sorting (`-r`).
+- Block counts (`-s`) and size options (`-h`, `-k`).
+- Non-printable filename handling (`-q`, `-w`).
+- Symbolic-link target display.
+- Error reporting for a nonexistent path and a nonzero exit status.
+- Selected combinations of options.
 
-Further testing is needed to establish compatibility with every detail of the original NetBSD manual.
+The program's output has been compared with the system `ls` for selected test cases. Some output formatting and untested edge cases may differ from the original NetBSD implementation.
 
-## 8. Limitations
+## 9. Limitations
 
-This is an educational implementation of a subset of NetBSD `ls(1)`. Behavior may differ from the original command in untested edge cases or combinations of options.
+This project implements a subset of NetBSD `ls(1)` for educational purposes. It has not been verified as fully compatible with every detail of the supplied manual, including every combination of options and all possible filesystem object types.
 
-## 9. GitHub Repository
+## 10. GitHub Repository
+
+Repository URL:
 
 https://github.com/HuynhHoangNhi/HuynhHoangNhi_24IT192_Midterm
